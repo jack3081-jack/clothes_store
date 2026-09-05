@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Customers & admins - HAWA DENNIS</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="admin.css?v=dashboard-shortcut-v1">
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="admin-brand">
+        <div class="logo">HAWA <span class="accent">DENNIS</span></div>
+        <span class="admin-brand-subtitle">Store Admin</span>
+      </div>
+      <nav class="admin-sidebar-nav" aria-label="Admin navigation">
+        <a class="admin-nav-link" href="admin.html"><span class="admin-nav-icon">▦</span>Dashboard</a>
+        <div class="admin-nav-group-label">Products</div>
+        <a class="admin-nav-link" href="admin.html#catalog"><span class="admin-nav-icon">◇</span>All products</a>
+        <a class="admin-nav-link" href="admin.html#add-product-section"><span class="admin-nav-icon">＋</span>Add product</a>
+        <a class="admin-nav-link" href="admin.html#categories"><span class="admin-nav-icon">◈</span>Categories</a>
+        <a class="admin-nav-link" href="admin.html#hero-settings"><span class="admin-nav-icon">✦</span>Appearance</a>
+        <div class="admin-nav-divider"></div>
+        <a class="admin-nav-link active" href="customer-admin.html"><span class="admin-nav-icon">♙</span>Customers & admins</a>
+      </nav>
+      <div class="header-actions">
+        <a href="admin.html#dashboard" class="icon-btn dashboard-shortcut">Dashboard</a>
+        <a href="index.html" class="icon-btn">View store ↗</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="admin-main customer-admin-main">
+    <div class="admin-section-heading customer-admin-heading">
+      <div>
+        <div class="admin-eyebrow">Team and access</div>
+        <h1>Customers & admins</h1>
+        <p class="muted">Create administrator accounts and review the people connected to your store.</p>
+      </div>
+      <a class="view-btn customer-back-link" href="admin.html">Back to dashboard</a>
+    </div>
+
+    <section class="admin-panel customer-admin-panel" aria-label="Customer and admin management">
+      <div>
+        <div class="admin-card-heading">
+          <span class="admin-card-icon">♙</span>
+          <div>
+            <h2 class="admin-form-title">Create admin account</h2>
+            <p>Give a trusted team member access to manage the store.</p>
+          </div>
+        </div>
+        <form id="create-admin-form" class="admin-form">
+          <label for="admin-name-input">Full name</label>
+          <input id="admin-name-input" type="text" required placeholder="JAMASON" />
+          <label for="admin-email-input">Email address</label>
+          <input id="admin-email-input" type="email" required placeholder="admin@example.com" />
+          <label for="admin-password-input">Password</label>
+          <input id="admin-password-input" type="password" minlength="6" required placeholder="At least 6 characters" />
+          <button class="add-btn" type="submit">Create admin</button>
+          <div id="admin-create-message" class="admin-form-message" aria-live="polite"></div>
+        </form>
+      </div>
+
+      <div>
+        <div class="admin-list-head">
+          <div>
+            <h2 class="admin-form-title">Account directory</h2>
+            <p class="customer-admin-subtitle">Current customer and administrator accounts.</p>
+          </div>
+          <button id="refresh-users" class="view-btn" type="button">Refresh</button>
+        </div>
+        <div id="admin-users" class="admin-products"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer admin-footer">
+    <div class="footer-bottom">Admin view - customer and team access</div>
+  </footer>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js?v=hero-firestore-v4"></script>
+  <script src="script.js?v=admin-submit-lock-v3"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      const adminProfile = await requireAdmin();
+      if (!adminProfile) return;
+
+      const form = document.getElementById('create-admin-form');
+      const usersList = document.getElementById('admin-users');
+      const message = document.getElementById('admin-create-message');
+      const refreshButton = document.getElementById('refresh-users');
+      const provisioningApp = firebase.apps.find(app => app.name === 'admin-provisioning')
+        || firebase.initializeApp(firebaseConfig, 'admin-provisioning');
+      const provisioningAuth = provisioningApp.auth();
+
+      async function renderUsers() {
+        usersList.innerHTML = '<div class="admin-loading">Loading accounts...</div>';
+        try {
+          const snapshot = await db.collection('users').orderBy('createdAt', 'desc').get();
+          usersList.innerHTML = '';
+          if (snapshot.empty) {
+            usersList.innerHTML = '<div class="admin-loading">No accounts found.</div>';
+            return;
+          }
+          snapshot.forEach(userDoc => {
+            const user = userDoc.data();
+            const row = document.createElement('div');
+            row.className = 'admin-card';
+            row.innerHTML = `<div class="admin-meta"><div class="admin-name">${user.name || user.email}</div><div class="admin-sub">${user.email} - ${user.role || 'user'} - ${user.status || 'active'}</div></div>`;
+            if (user.role !== 'admin' && user.role !== 'superadmin') {
+              const promote = document.createElement('button');
+              promote.className = 'add-btn';
+              promote.type = 'button';
+              promote.textContent = 'Promote to admin';
+              promote.addEventListener('click', async () => {
+                promote.disabled = true;
+                await db.collection('users').doc(userDoc.id).update({ role: 'admin', status: 'active' });
+                renderUsers();
+              });
+              row.appendChild(promote);
+            }
+            usersList.appendChild(row);
+          });
+        } catch (error) {
+          usersList.innerHTML = '<div class="admin-loading">Unable to load accounts.</div>';
+          console.error('User directory error:', error);
+        }
+      }
+
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        const submitButton = form.querySelector('button[type="submit"]');
+        if (submitButton.disabled) return;
+        submitButton.disabled = true;
+        submitButton.textContent = 'Creating...';
+        message.textContent = '';
+        const name = document.getElementById('admin-name-input').value.trim();
+        const email = document.getElementById('admin-email-input').value.trim();
+        const password = document.getElementById('admin-password-input').value;
+        try {
+          const credential = await provisioningAuth.createUserWithEmailAndPassword(email, password);
+          await db.collection('users').doc(credential.user.uid).set({
+            uid: credential.user.uid,
+            name,
+            email,
+            role: 'admin',
+            status: 'active',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          await provisioningAuth.signOut();
+          message.textContent = 'Admin account created successfully.';
+          form.reset();
+          await renderUsers();
+        } catch (error) {
+          message.textContent = error.message || 'Unable to create admin account.';
+        } finally {
+          submitButton.disabled = false;
+          submitButton.textContent = 'Create admin';
+        }
+      });
+
+      refreshButton.addEventListener('click', renderUsers);
+      renderUsers();
+    });
+  </script>
+</body>
+</html>

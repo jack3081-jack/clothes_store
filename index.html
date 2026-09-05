@@ -1,0 +1,182 @@
+ <!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HAWA DENNIS SHOP</title>
+    <link rel="stylesheet" href="style.min.css?v=fixed-customer-header-v2">
+    <link rel="stylesheet" href="index.min.css?v=dynamic-categories-v1">
+</head>
+
+<body>
+
+    <!-- HEADER -->
+    <header class="site-header">
+        <div class="header-inner">
+            <div class="store-brand"><div class="logo">HAWA <span class="accent">DENNIS</span></div><span>Quality fashion. Best prices.</span></div>
+            <button id="nav-toggle" class="nav-toggle" aria-label="Toggle navigation" onclick="toggleMobileNav()">☰</button>
+            <nav class="main-nav" aria-label="Main navigation">
+                <a href="#" onclick="window.scrollTo({top: 0, behavior: 'smooth'}); return false;">Home</a>
+                <a href="#categories">Categories</a>
+                <a href="#deals" onclick="showDeals(); return false;">Deals</a>
+                <a class="contact-link" href="contact.html">Contact</a>
+                <div id="contact-popover" class="contact-popover" aria-hidden="true">
+                    <div class="popover-head">
+                        <div class="popover-brand">HAWA <span class="accent">DENNIS</span></div>
+                        <div class="popover-sub">We're here to help — contact us</div>
+                    </div>
+                    <div class="contact-item">
+                        <div class="contact-left"><span class="icon">📞</span><div class="contact-label">Call</div></div>
+                        <div class="contact-right">
+                            <a class="contact-number" href="tel:+254768770090">0768770090</a>
+                            <button onclick="copyContact('phone', this)" aria-label="Copy phone">Copy</button>
+                            <a class="contact-action" href="tel:+254768770090">Call</a>
+                        </div>
+                    </div>
+                    <div class="divider"></div>
+                    <div class="contact-item">
+                        <div class="contact-left"><span class="icon">🟢</span><div class="contact-label">WhatsApp</div></div>
+                        <div class="contact-right">
+                            <a class="contact-number" href="#" onclick="contactWhatsAppGeneral(); return false;">0768770090</a>
+                            <button onclick="copyContact('whatsapp', this)" aria-label="Copy whatsapp">Copy</button>
+                            <a class="contact-action whatsapp-action" href="#" onclick="contactWhatsAppGeneral(); return false;">Open</a>
+                        </div>
+                    </div>
+                    <div class="popover-foot">Available 9:00 — 18:00 Mon–Sat</div>
+                </div>
+            </nav>
+
+            <div class="header-actions">
+                <div class="store-search">
+                    <input type="search" id="search-bar" placeholder="Search products, categories or brands" onkeydown="if(event.key === 'Enter') submitProductSearch()" aria-label="Search products">
+                    <button id="search-button" class="icon-btn" type="button" onclick="submitProductSearch()" aria-label="Search products">Search</button>
+                </div>
+                <div id="user-status" class="user-status">
+                    <a href="user-account.html" class="icon-btn">Account</a>
+                </div>
+                <a class="whatsapp-link" href="#" onclick="contactWhatsAppAuto(); return false;">WhatsApp: 0768770090</a>
+                <a class="phone-link" href="tel:+254768770090">Call: 0768770090</a>
+                <div id="cart-toggle" class="icon-btn cart-icon" onclick="window.location.href='cart.html'" aria-expanded="false" aria-controls="mini-cart">Cart: <span id="cart-count">0</span></div>
+                    <!-- Mini cart dropdown (header) -->
+                    <div id="mini-cart" class="mini-cart" aria-hidden="true">
+                        <h4>Shopping Cart</h4>
+                        <div id="cart-list"></div>
+                        <div class="cart-footer">
+                            <div class="cart-total">Total: Ksh <span id="cart-total">0</span></div>
+                            <div class="cart-actions">
+                                <button id="clear-cart" onclick="clearCart()">Clear</button>
+                                <button id="checkout" onclick="checkout()">Checkout</button>
+                            </div>
+                        </div>
+                    </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+    <!-- HERO -->
+    <section class="hero">
+        <div class="hero-inner">
+            <div class="hero-left">
+                <h1 id="hero-title">Discover great deals<br>every day at Hawa Dennis</h1>
+                <p id="hero-sub">Quality fashion and accessories at affordable prices — fast delivery, easy returns.</p>
+                <div class="hero-cta">
+                    <button class="hero-primary" onclick="filterCategory('All')">Shop Now</button>
+                    <button class="hero-secondary" onclick="showDeals()">View Deals</button>
+                </div>
+            </div>
+            <div class="hero-right">
+                <img id="hero-image" src="https://placehold.co/720x500/f7efe7/9a3412?text=Hawa+Dennis" alt="Hero image" onerror="this.onerror=null;this.src='https://placehold.co/720x500/f7efe7/9a3412?text=Hawa+Dennis';" />
+                <div id="hero-carousel-dots" class="hero-carousel-dots" aria-label="Hero image controls"></div>
+            </div>
+        </div>
+    </section>
+
+    <section id="categories" class="homepage-section category-showcase" aria-labelledby="category-showcase-title">
+        <div class="showcase-heading"><h2 id="category-showcase-title">Shop by Category</h2><button type="button" class="text-link" onclick="showAllCategories()">View all <span>→</span></button></div>
+        <div id="homepage-categories" class="category-cards"></div>
+    </section>
+
+    <!-- PRODUCT GRID -->
+    <section id="products" class="products-section">
+        <div class="products-header">
+            <h2 id="products-heading">Top Picks For You</h2>
+            <div class="products-controls">
+                <select id="sort" onchange="sortProducts(this.value)">
+                    <option value="default">Sort by</option>
+                    <option value="price-low">Price: Low to High</option>
+                    <option value="price-high">Price: High to Low</option>
+                </select>
+            </div>
+        </div>
+
+        <div id="product-list" class="product-grid"></div>
+    </section>
+
+    <section id="featured-deals" class="homepage-section featured-section" aria-labelledby="featured-title">
+        <div class="showcase-heading"><h2 id="featured-title">Featured products</h2><button type="button" class="text-link" onclick="showDeals()">View all deals <span>→</span></button></div>
+        <div id="featured-products" class="product-grid featured-grid"></div>
+    </section>
+    </main>
+
+    <!-- old sidebar cart removed — mini-cart now lives in header -->
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <div class="footer-col">
+                <h4>Hawa Dennis</h4>
+                <p>Fast delivery. Great prices. Trusted seller.</p>
+            </div>
+            <div class="footer-col">
+                <h4>Support</h4>
+                <a href="#">Help Center</a>
+                <a href="#">Returns</a>
+                <a href="#">Shipping</a>
+            </div>
+            <div class="footer-col">
+                <h4>Company</h4>
+                <a href="#">About</a>
+                <a href="#">Careers</a>
+                <a href="#">Terms</a>
+            </div>
+        </div>
+        <div class="footer-bottom">© 2025 Hawa Dennis Shop</div>
+    </footer>
+
+    <div id="toast" class="toast" aria-live="polite" aria-atomic="true"></div>
+
+    <!-- Quick View Modal -->
+    <div id="quick-view" class="modal" aria-hidden="true">
+        <div class="modal-overlay" onclick="closeProductModal()" tabindex="-1"></div>
+        <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <button class="modal-close" onclick="closeProductModal()" aria-label="Close">✕</button>
+            <div class="modal-body">
+                <div class="modal-image"><img id="modal-image" src="" alt=""></div>
+                <div class="modal-info">
+                    <h3 id="modal-title">Product name</h3>
+                    <p id="modal-category" class="muted">Category</p>
+                    <div class="modal-price" id="modal-price-container">Ksh <span id="modal-price">0</span></div>
+                    <p id="modal-desc">Description goes here. Add more info about sizes, materials or features.</p>
+
+                    <div class="modal-controls">
+                        <label>Quantity</label>
+                        <div class="qty-controls">
+                            <button onclick="modalChangeQty(-1)">-</button>
+                            <input id="modal-qty" type="number" min="1" value="1" />
+                            <button onclick="modalChangeQty(1)">+</button>
+                        </div>
+                        <button class="add-btn" id="modal-add" onclick="modalAddToCart()">Add to cart</button>
+                        <button style="background: #25D366; color: white; margin-left: 8px;" onclick="contactWhatsAppAuto()">📲 Message</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.min.js?v=production-v2"></script>
+<script src="script.min.js?v=fixed-customer-header-v2"></script>
+</body>
+</html>
