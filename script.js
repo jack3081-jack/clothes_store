@@ -1,5 +1,6 @@
 // storage key used for persisted products (admin edits)
-const PRODUCT_STORAGE_KEY = 'products_v1';
+const PRODUCT_STORAGE_KEY = 'products_v2_slim';
+const PRODUCT_IMAGES_COLLECTION = 'productImages';
 
 // hero storage for the homepage hero component
 const HERO_STORAGE_KEY = 'hero_v1';
@@ -212,7 +213,11 @@ function selectCategory(cat, btn) {
 async function loadProductsFromStorage() {
     try {
         const snapshot = await db.collection("products").get();
-        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        return snapshot.docs.map(doc => ({
+            ...doc.data(),
+            id: doc.data().id || doc.id,
+            firestoreId: doc.id
+        }));
     } catch (error) {
         console.error("Firebase products error:", error);
         return [];
@@ -239,22 +244,157 @@ let products = [];
 // ======================================================
 
 function productDocumentData(product) {
-    return {
+    const document = {
         id: product.id,
         name: product.name || "",
         price: Number(product.price) || 0,
         category: product.category || "",
-        image: product.image || "",
         description: product.description || "",
         stock: Number(product.stock) || 0
     };
+    if (product.imageRef) {
+        document.imageRef = product.imageRef;
+    } else if (product.image) {
+        document.image = product.image;
+    }
+    return document;
 }
 
 async function saveProductToFirestore(product) {
     if (!product || product.id === undefined || product.id === null) {
         throw new Error("A product ID is required to save a product.");
     }
-    await db.collection("products").doc(String(product.id)).set(productDocumentData(product));
+    const productRef = db.collection("products").doc(String(product.id));
+    const image = String(product.image || '');
+    if (image.startsWith('data:image/')) {
+        const imageRef = String(product.id);
+        const batch = db.batch();
+        batch.set(db.collection(PRODUCT_IMAGES_COLLECTION).doc(imageRef), { image });
+        batch.set(productRef, productDocumentData({ ...product, imageRef, image: '' }));
+        await batch.commit();
+        product.imageRef = imageRef;
+        delete product.image;
+        return;
+    }
+    await productRef.set(productDocumentData(product));
+}
+
+function cacheProducts(list) {
+    const slimProducts = list.map(product => {
+        const cached = { ...product };
+        if (cached.imageRef || String(cached.image || '').startsWith('data:image/')) {
+            delete cached.image;
+        }
+        return cached;
+    });
+    try {
+        localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(slimProducts));
+    } catch (cacheError) {
+        console.warn('Unable to cache products locally:', cacheError);
+    }
+}
+
+const productImageRequests = new Map();
+async function getProductImage(product) {
+    if (product.image && !product.image.startsWith('data:image/')) return product.image;
+    if (!product.imageRef && product.image) return product.image;
+    if (!product.imageRef) return '';
+
+    const imageRef = String(product.imageRef);
+    if (!productImageRequests.has(imageRef)) {
+        const request = db.collection(PRODUCT_IMAGES_COLLECTION).doc(imageRef).get()
+            .then(snapshot => {
+                if (!snapshot.exists) throw new Error(`Image document "${imageRef}" was not found.`);
+                const image = snapshot.data().image;
+                if (typeof image !== 'string' || !image) throw new Error(`Image document "${imageRef}" is invalid.`);
+                return image;
+            })
+            .catch(error => {
+                productImageRequests.delete(imageRef);
+                throw error;
+            });
+        productImageRequests.set(imageRef, request);
+    }
+    return productImageRequests.get(imageRef);
+}
+
+function escapeHtmlAttribute(value) {
+    return String(value || '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[character]);
+}
+
+function productImageMarkup(product, alt, className = '') {
+    const classAttribute = className ? ` class="${escapeHtmlAttribute(className)}"` : '';
+    const safeAlt = escapeHtmlAttribute(alt);
+    const image = String(product.image || '');
+    if (image && !image.startsWith('data:image/')) {
+        return `<img${classAttribute} src="${escapeHtmlAttribute(image)}" alt="${safeAlt}" loading="lazy">`;
+    }
+    if (image.startsWith('data:image/') || product.imageRef) {
+        const id = product.firestoreId || product.id;
+        return `<img${classAttribute} data-product-image-id="${escapeHtmlAttribute(id)}" alt="${safeAlt}" loading="lazy">`;
+    }
+    return `<img${classAttribute} alt="${safeAlt}" loading="lazy">`;
+}
+
+function loadDeferredProductImages(root = document) {
+    const images = root.querySelectorAll('[data-product-image-id]');
+    const loadImage = imageElement => {
+        const productId = imageElement.dataset.productImageId;
+        const product = products.find(item =>
+            String(item.id) === String(productId) || String(item.firestoreId) === String(productId)
+        );
+        if (!product) return;
+        getProductImage(product).then(image => {
+            imageElement.src = image;
+            const thumb = imageElement.closest('.thumb');
+            if (thumb) thumb.dataset.src = image;
+        }).catch(error => {
+            console.error(`Unable to load image for product ${productId}:`, error);
+        });
+    };
+
+    if (!('IntersectionObserver' in window)) {
+        images.forEach(loadImage);
+        return;
+    }
+    if (!loadDeferredProductImages.observer) {
+        loadDeferredProductImages.observer = new IntersectionObserver(entries => {
+            entries.forEach(entry => {
+                if (!entry.isIntersecting) return;
+                loadDeferredProductImages.observer.unobserve(entry.target);
+                loadImage(entry.target);
+            });
+        }, { rootMargin: '300px' });
+    }
+    images.forEach(image => loadDeferredProductImages.observer.observe(image));
+}
+
+async function migrateEmbeddedProductImages(list) {
+    const embedded = list.filter(product => String(product.image || '').startsWith('data:image/'));
+    if (!embedded.length) return;
+
+    showToast(`Optimizing ${embedded.length} existing product image${embedded.length === 1 ? '' : 's'}...`);
+    for (let start = 0; start < embedded.length; start += 20) {
+        const group = embedded.slice(start, start + 20);
+        const batch = db.batch();
+        group.forEach(product => {
+            const productId = String(product.firestoreId || product.id);
+            const productRef = db.collection('products').doc(productId);
+            const imageRef = productId;
+            batch.set(db.collection(PRODUCT_IMAGES_COLLECTION).doc(imageRef), { image: product.image });
+            batch.set(productRef, productDocumentData({ ...product, imageRef, image: '' }));
+        });
+        await batch.commit();
+        group.forEach(product => {
+            product.imageRef = String(product.firestoreId || product.id);
+            delete product.image;
+        });
+        cacheProducts(list);
+        if (typeof window.renderAdminList === 'function') window.renderAdminList();
+    }
+    showToast('Existing product images optimized');
 }
 
 async function compressImageForFirestore(file, maxBytes = 600 * 1024) {
@@ -307,8 +447,11 @@ async function compressImageForFirestore(file, maxBytes = 600 * 1024) {
 }
 
 
-async function deleteProductFromFirestore(productId) {
-    await db.collection("products").doc(String(productId)).delete();
+async function deleteProductFromFirestore(productId, imageRef) {
+    const batch = db.batch();
+    batch.delete(db.collection("products").doc(String(productId)));
+    if (imageRef) batch.delete(db.collection(PRODUCT_IMAGES_COLLECTION).doc(String(imageRef)));
+    await batch.commit();
 }
 
 async function saveProductsToFirestore(list) {
@@ -343,11 +486,7 @@ async function loadProductsFromFirestore() {
         products = firestoreProducts;
 
         // Keep a local cache too
-        try {
-            localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(products));
-        } catch (cacheError) {
-            console.warn("Unable to cache products locally:", cacheError);
-        }
+        cacheProducts(products);
 
         console.log(
             "Products loaded from Firestore:",
@@ -402,7 +541,8 @@ async function deleteProduct(id) {
     if (idx === -1) return;
     if (!confirm('Delete this product?')) return;
     try {
-        await deleteProductFromFirestore(id);
+        const product = products[idx];
+        await deleteProductFromFirestore(id, product.imageRef);
     } catch (error) {
         console.error('Firestore delete error:', error);
         showToast('Database delete failed');
@@ -475,10 +615,19 @@ function editProduct(id) {
 }
 
 async function resetProductsToDefaults() {
-    const snapshot = await db.collection("products").get();
-    const batch = db.batch();
-    snapshot.forEach(doc => batch.delete(doc.ref));
-    await batch.commit();
+    const [productsSnapshot, imagesSnapshot] = await Promise.all([
+        db.collection("products").get(),
+        db.collection(PRODUCT_IMAGES_COLLECTION).get()
+    ]);
+    const references = [
+        ...productsSnapshot.docs.map(document => document.ref),
+        ...imagesSnapshot.docs.map(document => document.ref)
+    ];
+    for (let start = 0; start < references.length; start += 450) {
+        const batch = db.batch();
+        references.slice(start, start + 450).forEach(reference => batch.delete(reference));
+        await batch.commit();
+    }
     products = [];
     renderCart();
     if (container) applyFilters();
@@ -577,7 +726,7 @@ function displayProducts(list) {
         const stockText = available <= 0 ? 'Out of stock' : `${available} remaining`;
             container.innerHTML += `
             <div class="product-card" onclick="openProduct('${p.id}')" role="button" tabindex="0">
-                <img src="${p.image}" alt="${p.name}">
+            ${productImageMarkup(p, p.name)}
                 <div class="product-name">${p.name}</div>
                 ${p.description ? `<div class="product-description">${p.description}</div>` : ''}
                 <div class="product-meta">
@@ -593,6 +742,7 @@ function displayProducts(list) {
             </div>
         `;
     });
+    loadDeferredProductImages(container);
 }
 
 function renderHomepageHighlights() {
@@ -602,7 +752,7 @@ function renderHomepageHighlights() {
         categoryContainer.innerHTML = categoryNames.map(category => {
             const product = products.find(item => String(item.category || '').toLowerCase() === category.toLowerCase());
             return `<button class="category-card" type="button" onclick="filterCategory('${category}')">
-                <span class="category-card-image">${product && product.image ? `<img src="${product.image}" alt="${category}">` : '<span class="category-card-icon">◇</span>'}</span>
+                <span class="category-card-image">${product && (product.image || product.imageRef) ? productImageMarkup(product, category) : '<span class="category-card-icon">◇</span>'}</span>
                 <span>${category}</span>
             </button>`;
         }).join('');
@@ -614,7 +764,7 @@ function renderHomepageHighlights() {
         featuredContainer.innerHTML = featured.slice(0, 8).map(product => {
             const available = getAvailableStock(product.id);
             return `<article class="featured-card">
-                <button class="featured-image" type="button" onclick="openProduct('${product.id}')"><img src="${product.image || 'https://via.placeholder.com/420x320?text=Product'}" alt="${product.name}"></button>
+                <button class="featured-image" type="button" onclick="openProduct('${product.id}')">${productImageMarkup(product, product.name)}</button>
                 <button class="featured-name" type="button" onclick="openProduct('${product.id}')">${product.name}</button>
                 <strong>${product.price ? 'Ksh ' + Number(product.price).toLocaleString() : 'Ask owner for price'}</strong>
                 <span class="featured-stock">${available > 0 ? available + ' available' : 'Out of stock'}</span>
@@ -623,6 +773,8 @@ function renderHomepageHighlights() {
         }).join('');
         if (!featured.length) featuredContainer.innerHTML = '<p class="empty-highlight">Products will appear here after they are added.</p>';
     }
+    loadDeferredProductImages(document.getElementById('homepage-categories') || document);
+    loadDeferredProductImages(document.getElementById('featured-products') || document);
 }
 
 function showAllCategories() {
@@ -663,7 +815,12 @@ function loadCart() {
 }
 
 function saveCart() {
-    localStorage.setItem('cart_v1', JSON.stringify(cart));
+    const lightweightCart = cart.map(item => {
+        const saved = { ...item };
+        if (String(saved.image || '').startsWith('data:image/')) delete saved.image;
+        return saved;
+    });
+    localStorage.setItem('cart_v1', JSON.stringify(lightweightCart));
 }
 
 function addToCart(productId) {
@@ -756,12 +913,14 @@ function renderCart() {
     cart.forEach((it, idx) => {
         // try to find product metadata if we have id
         const meta = products.find(p => String(p.id) === String(it.id));
-        const thumb = meta ? meta.image : it.image;
+        const thumb = meta
+            ? ((meta.image || meta.imageRef) ? productImageMarkup(meta, it.name) : '')
+            : (it.image && !it.image.startsWith('data:image/') ? `<img src="${escapeHtmlAttribute(it.image)}" alt="${escapeHtmlAttribute(it.name)}" loading="lazy">` : '');
         const el = document.createElement('div');
         el.className = 'cart-item';
         el.innerHTML = `
             <div class="cart-item-row">
-                <div class="mini-thumb" onclick="showProductFromCart(event, ${idx})" role="button" tabindex="0" title="Open ${it.name}">${thumb ? `<img src="${thumb}" alt="${it.name}">` : ''}</div>
+                <div class="mini-thumb" onclick="showProductFromCart(event, ${idx})" role="button" tabindex="0" title="Open ${escapeHtmlAttribute(it.name)}">${thumb}</div>
                 <div class="cart-item-body">
                     <div class="cart-item-name"><a href="#" onclick="showProductFromCart(event, ${idx})">${it.name}</a></div>
                     <div class="cart-item-controls">
@@ -776,6 +935,7 @@ function renderCart() {
         `;
         if (list) list.appendChild(el);
     });
+    if (list) loadDeferredProductImages(list);
 
     if (totalEl) totalEl.textContent = cartTotal();
 
@@ -1202,11 +1362,7 @@ async function initializeStore() {
                 };
             });
             products.sort((a, b) => Number(a.id) - Number(b.id));
-            try {
-                localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(products));
-            } catch (cacheError) {
-                console.warn('Unable to cache products locally:', cacheError);
-            }
+            cacheProducts(products);
             if (container) applyFilters();
             renderHomepageHighlights();
             renderCart();
@@ -1268,8 +1424,12 @@ function showProductModal(productId) {
     // lock background scroll while modal is open
     document.body.classList.add('modal-open');
 
-    document.getElementById('modal-image').src = p.image || 'https://via.placeholder.com/360x320?text=Product';
-    document.getElementById('modal-image').alt = p.name;
+    const modalImage = document.getElementById('modal-image');
+    modalImage.removeAttribute('src');
+    modalImage.alt = p.name;
+    getProductImage(p).then(image => {
+        if (modalCurrentId === productId) modalImage.src = image;
+    }).catch(error => console.error(`Unable to load image for product ${productId}:`, error));
     document.getElementById('modal-title').textContent = p.name;
     document.getElementById('modal-category').textContent = p.category || '';
     const modalPriceContainer = document.getElementById('modal-price-container');
